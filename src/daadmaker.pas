@@ -85,11 +85,11 @@ CONST EmptyGraphics : array[0..2088] of byte =
 228, 247, 228, 255, 255, 255, 1, 0, 0);
 
 CONST version_hi = 0;
-      version_lo = 2;
+      version_lo = 5;
 
 var Buffer: TBigBuffer;
-    TAPFilename, DDBFilename, SDGFilename, INTFilename, SCRFilename, LoaderFilename : string;
-    FileTAP, FileDDB, FileSDG, FileSCR, FileINT, FileLoader : file;
+    TAPFilename, DDBFilename, SDGFilename, INTFilename, SCRFilename, LoaderFilename, CHRFilename : string;
+    FileTAP, FileDDB, FileSDG, FileSCR, FileINT, FileLoader, FileCHR : file;
     SDGAddress : word;
     GameName : ShortString;
     AuxStr : ShortString;
@@ -100,16 +100,17 @@ begin
     WriteLn('DAADMAKER ' , version_hi, '.', version_lo);
     Writeln('Creates ZX Spectrum TAP files from DAAD DDB file and database');
     Writeln('Syntax:');
-    WriteLn('daadmaker <TAP file> <INT file> <DDB file> [SDG file] [SRC file] [loader file]');
+    WriteLn('daadmaker <TAP file> <INT file> <DDB file> [SDG file] [SCR file] [CHR file] [loader file]');
     WriteLn();
     WriteLn('<TAP file> : output TAP file');
     WriteLn('<INT file> : ZX Spectrum interpreter file');
     WriteLn('<DDB file> : input DDB file');
     WriteLn('[SDG file] : input SDG file (optional)');
-    WriteLn('[SRC file] : input SRC file (optional)');
+    WriteLn('[SCR file] : input SCR file (optional)');
+    WriteLn('[CHR file] : input CHR file (optional)');
     WriteLn('[loader file] : alternative basic loader, already in tap format (optional)');
     WriteLn();
-    WriteLn('Please notice parameters after third one will be identified by file extension, depending on if it''s SDG, SRC or TAP');
+    WriteLn('Please notice parameters after third one will be identified by file extension, depending on if it''s SDG, SCR, CHR or TAP. A CHR file is a 2048 bytes file with the definition of a charset (o bytes per character, 256 characters).');
     halt(1);
 end;
 
@@ -125,7 +126,7 @@ begin
 end;
 
 
-procedure SaveBlockFromBuffer(Blockname: ShortString; var Foutput: file; var buffer: TBigBuffer; size: word; Address: word);
+procedure SaveBlockFromBuffer(Blockname: ShortString; var Foutput: file; var buffer: TBigBuffer; Offset: Word; size: word; Address: word);
 var header: TTapHeader;
     blockLength : word;
     i : word;
@@ -159,9 +160,27 @@ begin
 end;
 
 procedure SaveBlockFromFile(Blockname: ShortString; var Foutput: file;var Finput: file; Address: word);
+VAR P3Str: ShortString;
+    i: integer;
+    hasPlus3Header: boolean;
+    Start, Length: Word;
 begin
  Blockread(Finput, Buffer,  filesize(Finput));
- SaveBlockFromBuffer(Blockname,Foutput, Buffer, filesize(Finput), Address);
+ 
+  // Check and skip PLUS3 header if present
+ P3Str := 'PLUS3DOS';
+ Start := 0;
+ Length := filesize(Finput);
+ hasPlus3Header := true;
+ for i:= 1 to 8 DO 
+  if char(Buffer[i-1]) <> P3STR[i] then hasPlus3Header := false;
+ if hasPlus3Header then
+ begin
+    Start := 128;
+    Length := Length - 128;
+ end;
+ // Save block
+ SaveBlockFromBuffer(Blockname,Foutput, Buffer, Start, Length, Address);
 end;
 
 procedure SaveLoader(var Foutput: file; GameName : String; withScreen: boolean );
@@ -189,17 +208,20 @@ begin
     TAPFilename := ParamStr(1);
     INTFilename := ParamStr(2);
     DDBFilename := ParamStr(3);
+
     if not FileExists(DDBFilename) then Error('DDB file not found');
     if not FileExists(INTFilename) then Error('Interpreter file not found');
     SDGFilename := '';
     SCRFilename := '';
     LoaderFilename := '';
+    CHRFilename := '';
     for i := 4 to ParamCount() do
     begin
       AuxStr := ParamStr(i);
       if not FileExists(AuxStr) then Error(AuxStr + ' not found');
       if UpperCase(ExtractFileExt(AuxStr)) = '.SCR' then SCRFilename := AuxStr else 
       if UpperCase(ExtractFileExt(AuxStr)) = '.TAP' then LoaderFilename := AuxStr else 
+      if UpperCase(ExtractFileExt(AuxStr)) = '.CHR' then CHRFilename := AuxStr else 
       if UpperCase(ExtractFileExt(AuxStr)) = '.SDG' then SDGFilename := AuxStr else Error('Invalid extension '+UpperCase(ExtractFileExt(AuxStr))+', must be either SCR, TAP or SDG');
     end;
 
@@ -223,6 +245,11 @@ begin
     Reset(FileSDG,1);
     Assign(FileINT, INTFilename);
     Reset(FileINT, 1);
+    IF CHRFilename<>'' THEN
+    BEGIN
+        Assign(FileCHR, CHRFilename);
+        Reset(FileCHR, 1);
+    END;
     
     // Export the basic loader. There are three options: custom one, loader without SCREEN$ and loader with SCREEN$
     IF LoaderFilename<>''then  // Custom loader
@@ -259,11 +286,21 @@ begin
     SDGAddress := $FFFF - filesize(FileSDG) +1;
     if (filesize(fileDDB)+ $8400 > SDGAddress) then Error('DDB + SDG exceed RAM size');
     GameName[10] := 'G';
-    SaveBlockFromFile(GameName,FileTAP, FileSDG, SDGAddress);
+    Blockread(FileSDG, Buffer, filesize(FileSDG));
+    IF CHRFilename<>'' THEN 
+    BEGIN
+      IF (FileSize(FileCHR)<>2048) AND (FileSize(FileCHR)<>2048+128) THEN Error('Invalid CHR file. Must be 2048 bytes long.');
+      IF (FileSize(FileCHR)=2048+128) THEN Seek(FileCHR, 128);
+      Blockread(FileCHR,Buffer[FileSize(FileSDG)-2076], 2048);
+    END;
+    SaveBlockFromBuffer(Gamename, FileTAP, Buffer, 0, filesize(FileSDG), SDGAddress);
+
+
     Close(FileTap);
     Close(FileINT);
     Close(FileDDB);
     Close(FileSDG);
-    if (SDGFilename=SDGTMP) then Erase(FileSDG);
+    IF CHRFilename<>'' THEN Close(FileCHR);
+    IF (SDGFilename=SDGTMP) then Erase(FileSDG);
     WriteLn('File ', TAPFilename, ' created.');
 end.

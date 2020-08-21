@@ -319,10 +319,10 @@ S 1
 > _       _     EQ      fTurns   255     ; Max for one byte
                 PLUS    fTurnsHi 1
                 CLEAR   fTurns
-                SKIP    1
+                SKIP    $noCarry
 
 > _       _     PLUS    fTurns   1
-
+$noCarry
 > _       _     PROCESS 5               ; Do any commands
                 ISDONE                  ; Done something
                 REDO
@@ -424,14 +424,15 @@ S 1
                 DESC    0               ; Introduction
                 ANYKEY
                 CLS
-                CLEAR   255             ; Clear all flags
+                SET   255             
 
-> _       _     NOTEQ   255     fGFlags
+$resetLoop
+> _       _     MINUS  255 1          ; Clear all flags
+                NOTEQ   255  fGFlags  ; except fGFlags!!!
                 CLEAR   @255
 
-> _       _     PLUS    255     1
-                LT      255     255     ; Will be set at end to indicate init
-                SKIP    -2              ; has been done once
+> _       _     NOTZERO 255             
+                SKIP    $resetLoop
 
 > _       _     RESET                   ; Set objects to start location & Flag 1
                 LET     fStrength 10

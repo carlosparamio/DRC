@@ -19,22 +19,24 @@ VAR SymbolList : TPSymbolList;
 (* Adds a new symbol and returns true if succcesful, otherwise (basically cause symbol already exists) returns false *)
 FUNCTION AddSymbol(VAR ASymbolList: TPSymbolList; ASymbol: AnsiString; AValue : Longint):boolean;
 
-(* Returns the value of a Symbol or MAXINT if it does not exist) *)
+(* Returns the value of a Symbol or MAXLONGINT if it does not exist) *)
 FUNCTION GetSymbolValue(ASymbolList: TPSymbolList; ASymbol: AnsiString): Longint;
 
 IMPLEMENTATION
 
-uses sysutils;
+uses sysutils, UConstants;
 
 FUNCTION AddSymbol(VAR ASymbolList: TPSymbolList; ASymbol: AnsiString; AValue : Longint):boolean;
 BEGIN
+	ASymbol := AnsiUpperCase(ASymbol);
 	if (ASymbolList = nil) THEN
 	BEGIN
 		New(ASymbolList);
-		ASymbolList^.Symbol := AnsiUpperCase(ASymbol);;
+		ASymbolList^.Symbol := ASymbol;
 		ASymbolList^.Value := AValue;
 		ASymbolList^.Next := nil;
 		Result := true;
+		IF Verbose AND (Copy(ASymbol, 1, 4)<>'_VOC') then WriteLn('Added Symbol: ', ASymbol, '=', Avalue);
 	END 
 	ELSE
 	BEGIN
@@ -46,7 +48,7 @@ END;
 FUNCTION GetSymbolValue(ASymbolList: TPSymbolList; ASymbol: AnsiString): Longint;
 BEGIN
 	ASymbol := AnsiUpperCase(ASymbol);
-	IF (ASymbolList = nil) THEN Result:= MAXINT
+	IF (ASymbolList = nil) THEN Result:= MAXLONGINT
 	ELSE IF ASymbolList^.Symbol = ASymbol THEN Result := ASymbolList^.Value
 	 ELSE Result := GetSymbolValue(ASymbolList^.Next, ASymbol);
 END;
